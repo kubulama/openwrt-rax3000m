@@ -37,10 +37,11 @@ rm -rf qiu-luci-app-daed
 
 # QiuSimons' current daed package builds the upstream monorepo with
 # `pnpm build --filter daed`, which can leave apps/web/dist empty. dae-wing
-# embeds webrender/web at Go compile time, so build apps/web directly and fail
-# early with diagnostics if the frontend assets are still missing.
-perl -0777 -i -pe 's#pnpm build --filter daed ; \\\r?\n\s*popd ; \\\r?\n\s*mkdir -p \$\(PKG_BUILD_DIR\)/webrender/web ; \\\r?\n\s*cp -rf \$\(DAED_BUILD_DIR\)/apps/web/dist/\* \$\(PKG_BUILD_DIR\)/webrender/web ;#pushd \$(DAED_BUILD_DIR)/apps/web ; \\\n\t\tpnpm build ; \\\n\t\tpopd ; \\\n\t\tpopd ; \\\n\t\ttest -s \$(DAED_BUILD_DIR)/apps/web/dist/index.html || { echo "ERROR: daed web assets were not generated"; find \$(DAED_BUILD_DIR)/apps -maxdepth 4 -type f | sort | tail -200; exit 1; } ; \\\n\t\tmkdir -p \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tcp -rf \$(DAED_BUILD_DIR)/apps/web/dist/. \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tfind \$(PKG_BUILD_DIR)/webrender/web -type f -print -quit | grep -q . || { echo "ERROR: dae-wing webrender/web is empty"; exit 1; } ;#s' package/porxy/daed/Makefile
-grep -Fq 'pushd $(DAED_BUILD_DIR)/apps/web' package/porxy/daed/Makefile || {
+# embeds webrender/web at Go compile time, so install the pnpm workspace deps,
+# build apps/web explicitly, and fail early with diagnostics if assets are
+# still missing.
+perl -0777 -i -pe 's#pnpm build --filter daed ; \\\r?\n\s*popd ; \\\r?\n\s*mkdir -p \$\(PKG_BUILD_DIR\)/webrender/web ; \\\r?\n\s*cp -rf \$\(DAED_BUILD_DIR\)/apps/web/dist/\* \$\(PKG_BUILD_DIR\)/webrender/web ;#node -v ; \\\n\t\tcorepack enable || true ; \\\n\t\tpnpm -v ; \\\n\t\tpnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile ; \\\n\t\tpnpm -C \$(DAED_BUILD_DIR)/apps/web build ; \\\n\t\tpopd ; \\\n\t\ttest -s \$(DAED_BUILD_DIR)/apps/web/dist/index.html || { echo "ERROR: daed web assets were not generated"; find \$(DAED_BUILD_DIR)/apps -maxdepth 4 -type f | sort | tail -200; exit 1; } ; \\\n\t\tmkdir -p \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tcp -rf \$(DAED_BUILD_DIR)/apps/web/dist/. \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tfind \$(PKG_BUILD_DIR)/webrender/web -type f -print -quit | grep -q . || { echo "ERROR: dae-wing webrender/web is empty"; exit 1; } ;#s' package/porxy/daed/Makefile
+grep -Fq 'pnpm -C $(DAED_BUILD_DIR)/apps/web build' package/porxy/daed/Makefile || {
   echo "ERROR: failed to patch daed web build command"
   exit 1
 }

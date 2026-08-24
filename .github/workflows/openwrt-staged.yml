@@ -201,11 +201,18 @@ jobs:
           cd "$SOURCE_NAME"
           echo "::group::daed package diagnostics"
           grep -E 'CONFIG_PACKAGE_(daed|luci-app-daed|luci-i18n-daed)|CONFIG_DAE|CONFIG_DAED|CONFIG_KERNEL_DEBUG_INFO_BTF' .config || true
+          grep -nE 'corepack|pnpm|apps/web|webrender|dist/index.html' package/porxy/daed/Makefile || true
           sed -n '1,260p' package/porxy/daed/Makefile || true
           echo "::endgroup::"
           rm -rf dl/go-mod-cache
           make package/porxy/daed/clean V=s
-          make package/porxy/daed/compile -j$(nproc) V=s || yes n | make package/porxy/daed/compile -j1 V=s
+          make package/porxy/daed/compile -j$(nproc) V=s || {
+            echo "::group::daed failure diagnostics"
+            find build_dir -path '*/daed-*/apps/web/*' -type f | sort | tail -200 || true
+            find build_dir -path '*/daed-*/apps/web/dist/*' -type f | sort | head -100 || true
+            echo "::endgroup::"
+            yes n | make package/porxy/daed/compile -j1 V=s
+          }
 
       - name: 3.6.save-daed-cache
         uses: actions/cache/save@v5
