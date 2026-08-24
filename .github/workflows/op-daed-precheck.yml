@@ -1,0 +1,283 @@
+name: openwrt-daed-precheck
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      OP_IP:
+        description: '静态IP地址'
+        required: false
+        default: '192.168.2.1'
+        type: string
+      OP_author:
+        description: '定制作者'
+        required: false
+        default: 'kubulama'
+        type: string
+      CUSTOM_PLUGINS:
+        description: '自定义插件名称，用空格分隔'
+        required: false
+        default: 'luci-app-zerotier luci-app-socat luci-app-samba4 luci-theme-m3e luci-app-ttyd luci-app-diskman luci-app-daed luci-i18n-daed-zh-cn'
+        type: string
+      BUILD_DATE:
+        description: '固件发布日期，留空则使用当天日期'
+        required: false
+        default: '20260824'
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DIY_P1_SH: sh/op.sh
+
+jobs:
+  build_firmware:
+    name: daed预检查后编译固件 - ${{ matrix.device }} - ${{ matrix.source }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        device: ["mt7981-multi"]
+        source: ["openwrt"]
+        include:
+          - device: "mt7981-multi"
+            config: |
+              CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_rax3000m=y
+              CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_rax3000m-emmc=y
+              CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_rax3000m-nand=y
+              CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_rax3000m-256m-nand=y
+              CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_xr30-emmc=y
+              CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_cmcc_xr30-nand=y
+              CONFIG_TARGET_DEVICE_mediatek_filogic_DEVICE_jcg_q30-pro=y
+
+    steps:
+    - name: 检查分支
+      uses: actions/checkout@v6
+
+    - name: 释放磁盘空间
+      run: |
+        sudo rm -rf /etc/apt/sources.list.d
+        sudo swapoff -a
+        sudo rm -f /swapfile /mnt/swapfile
+        sudo docker image prune -a -f
+        sudo systemctl stop docker
+        sudo snap set system refresh.retain=2
+        sudo apt-get -y purge firefox clang* ghc* google* llvm* mono* mongo* mysql* php*
+        sudo apt-get -y autoremove --purge
+        sudo apt-get clean
+        sudo rm -rf /etc/mysql /etc/php /usr/lib/jvm /usr/libexec/docker /usr/local /usr/src/* /var/lib/docker /var/lib/gems /var/lib/mysql /var/lib/snapd /etc/skel /opt/{microsoft,az,hostedtoolcache,cni,mssql-tools,pipx} /usr/share/{az*,dotnet,swift,miniconda,gradle*,java,kotlinc,ri,sbt} /root/{.sbt,.local,.npm}
+        sudo sed -i '/NVM_DIR/d;/skel/d' /root/{.bashrc,.profile}
+        rm -rf ~/{.cargo,.dotnet,.rustup}
+        df -Th
+
+    - name: 编译环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y tar build-essential flex bison cmake g++ gawk gcc-multilib g++-multilib gettext git libfuse-dev libncurses5-dev libssl-dev python3 python3-pip python3-ply python3-distutils python3-pyelftools rsync unzip zlib1g-dev file wget subversion patch upx-ucl autoconf automake curl asciidoc binutils bzip2 lib32gcc-s1 libc6-dev-i386 uglifyjs msmtp texinfo libreadline-dev libglib2.0-dev xmlto libelf-dev libtool autopoint antlr3 gperf ccache swig coreutils haveged scons libpython3-dev rename qemu-utils clang llvm
+        sudo apt-get clean
+        git config --global user.name 'GitHub Actions' && git config --global user.email 'noreply@github.com'
+        sudo timedatectl set-timezone 'Asia/Shanghai'
+        sudo mkdir -p /workdir
+        sudo chown $USER:$GROUPS /workdir
+        df -Th
+
+    - name: 设置环境变量
+      run: |
+        TAG="${{ github.event.inputs.BUILD_DATE }}"
+        [ -n "$TAG" ] || TAG="$(date +'%Y%m%d')"
+        echo "tag=$TAG" >> $GITHUB_ENV
+        echo "OP_IP=${{ github.event.inputs.OP_IP }}" >> $GITHUB_ENV
+        echo "OP_author=${{ github.event.inputs.OP_author }}" >> $GITHUB_ENV
+        echo "CUSTOM_PLUGINS=${{ github.event.inputs.CUSTOM_PLUGINS }}" >> $GITHUB_ENV
+        echo "DEVICE_NAME=${{ matrix.device }}" >> $GITHUB_ENV
+        echo "SOURCE_NAME=${{ matrix.source }}" >> $GITHUB_ENV
+        echo "REPO_URL=https://github.com/shiyu1314/openwrt-source" >> $GITHUB_ENV
+        echo "REPO_BRANCH=openwrt-25.12" >> $GITHUB_ENV
+
+    - name: 克隆源代码
+      working-directory: /workdir
+      run: |
+        df -hT $PWD
+        git clone $REPO_URL $SOURCE_NAME
+        ln -sf /workdir/$SOURCE_NAME $GITHUB_WORKSPACE/$SOURCE_NAME
+
+    - name: 切换分支
+      run: |
+        cd $SOURCE_NAME
+        case $REPO_BRANCH in
+          openwrt-25.12)
+            _release_tag=$(git tag --sort=taggerdate --list 'v25.*' | tail -1)
+            git checkout $_release_tag
+            _prerelease=false
+            ;;
+          *)
+            echo "Can't get local/upstream's branch/tags"
+            ;;
+        esac
+        echo "release_tag=$_release_tag" >> $GITHUB_ENV
+
+    - name: 取回缓存 staging_dir
+      id: build-cache
+      uses: actions/cache/restore@v5
+      with:
+        path: |
+          ${{ matrix.source }}/dl
+          ${{ matrix.source }}/staging_dir
+          ${{ matrix.source }}/build_dir/host
+          ${{ matrix.source }}/build_dir/hostpkg
+          ${{ matrix.source }}/build_dir/toolchain-*
+          ${{ matrix.source }}/bin/packages
+          ${{ matrix.source }}/bin/targets
+        key: ${{ matrix.source }}-${{ matrix.device }}-build-cache-${{ github.run_id }}
+        restore-keys: |
+          ${{ matrix.source }}-${{ matrix.device }}-build-cache-
+          ${{ matrix.source }}-jcg-q30-pro-build-cache-
+          ${{ matrix.source }}-xr30-emmc-build-cache-
+          ${{ matrix.source }}-xr30-nand-build-cache-
+          ${{ matrix.source }}-rax3000m-emmc-build-cache-
+          ${{ matrix.source }}-rax3000m-nand-build-cache-
+
+    - name: Validate toolchain cache
+      run: |
+        cd $SOURCE_NAME
+        if [ -d staging_dir ] && ! find staging_dir -path '*/toolchain-*/lib/libgcc_s.so.*' | grep -q .; then
+          echo "::warning::Restored toolchain cache is incomplete; rebuilding toolchain only."
+          rm -rf staging_dir/toolchain-* build_dir/toolchain-* build_dir/target-*/toolchain
+          rm -f staging_dir/target-*/pkginfo/toolchain.* staging_dir/target-*/stamp/.toolchain_installed
+        fi
+        if [ -d dl/go-mod-cache ]; then
+          echo "::warning::Dropping restored Go module cache; it can be left incomplete by failed daed builds."
+          rm -rf dl/go-mod-cache
+        fi
+
+    - name: patch修补
+      run: |
+        set -x
+        cd $SOURCE_NAME
+        [ -d ./staging_dir ] && find ./staging_dir/ -name '*' -exec touch {} \; >/dev/null 2>&1 || true
+        ./scripts/feeds update -a
+        cd ..
+        [ -e patch ] && cp -rf patch/diy/*.patch $SOURCE_NAME
+        [ -e patch ] && cp -rf patch/luci/*.patch $SOURCE_NAME/feeds/luci
+
+    - name: 加载自定义脚本
+      run: |
+        chmod +x $DIY_P1_SH
+        cd $SOURCE_NAME
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+        cd ..
+        [ -e patch ] && cp -rf patch/nginx/luci.locations $SOURCE_NAME/feeds/packages/net/nginx/files-luci-support
+        [ -e patch ] && cp -rf patch/nginx/uci.conf.template $SOURCE_NAME/feeds/packages/net/nginx-util/files
+
+    - name: 加载自定义配置
+      run: |
+        [ -e files ] && mv files $SOURCE_NAME/files
+        cat <<EOF >>$SOURCE_NAME/.config
+        CONFIG_TARGET_mediatek=y
+        CONFIG_TARGET_mediatek_filogic=y
+        ${{ matrix.config }}
+        EOF
+
+        [ -e config ] && cat config/config-common >> $SOURCE_NAME/.config
+
+        sed -i "s/192.168.1.1/${{ github.event.inputs.OP_IP }}/" $SOURCE_NAME/package/base-files/files/bin/config_generate
+
+        IFS=' ' read -r -a plugins <<< "${{ github.event.inputs.CUSTOM_PLUGINS }}"
+        for plugin in "${plugins[@]}"; do
+          echo "CONFIG_PACKAGE_${plugin}=y" >> $SOURCE_NAME/.config
+        done
+
+    - name: 下载编译依赖
+      id: package
+      run: |
+        cd $SOURCE_NAME
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: BPF/LLVM early checkpoint
+      run: |
+        cd $SOURCE_NAME
+        trap 'echo "::group::BPF checkpoint diagnostics"; find staging_dir -maxdepth 4 \( -path "*/toolchain-*" -o -name "libgcc_s.so*" -o -name "*.toolchain*" \) -print 2>/dev/null || true; find build_dir -maxdepth 3 \( -path "*/toolchain*" -o -path "*/bpf-headers*" \) -print 2>/dev/null || true; echo "::endgroup::"' ERR
+        clang --version || true
+        grep -E 'CONFIG_(BPF_TOOLCHAIN|USE_LLVM|HAS_BPF|SDK_LLVM|KERNEL_DEBUG_INFO|KERNEL_BPF|KERNEL_CGROUP_BPF|KERNEL_XDP|DAE.*BTF|DAE.*BPF_DEPENDS)' .config || true
+        make tools/install -j$(nproc) || yes n | make tools/install -j1 V=s
+        make toolchain/install -j$(nproc) || yes n | make toolchain/install -j1 V=s
+        make target/compile -j$(nproc) || yes n | make target/compile -j1 V=s
+        make package/kernel/bpf-headers/compile V=s || yes n | make package/kernel/bpf-headers/compile V=s
+
+    - name: Daed source precheck
+      run: |
+        cd $SOURCE_NAME
+        echo "::group::daed package diagnostics"
+        grep -E 'CONFIG_PACKAGE_(daed|luci-app-daed|luci-i18n-daed)|CONFIG_DAE|CONFIG_DAED|CONFIG_KERNEL_DEBUG_INFO_BTF' .config || true
+        sed -n '1,260p' package/porxy/daed/Makefile || true
+        echo "::endgroup::"
+        rm -rf dl/go-mod-cache
+        make package/porxy/daed/clean V=s
+        make package/porxy/daed/compile -j$(nproc) V=s || yes n | make package/porxy/daed/compile -j1 V=s
+
+    - name: 编译源码
+      id: compile
+      run: |
+        cd $SOURCE_NAME
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || yes n | make -j1 || yes n | make -j1 V=s
+
+    - name: Clean volatile Go module cache
+      if: always()
+      run: |
+        cd $SOURCE_NAME
+        rm -rf dl/go-mod-cache
+
+    - name: Save build cache
+      if: always()
+      uses: actions/cache/save@v5
+      with:
+        path: |
+          ${{ matrix.source }}/dl
+          ${{ matrix.source }}/staging_dir
+          ${{ matrix.source }}/build_dir/host
+          ${{ matrix.source }}/build_dir/hostpkg
+          ${{ matrix.source }}/build_dir/toolchain-*
+          ${{ matrix.source }}/bin/packages
+          ${{ matrix.source }}/bin/targets
+        key: ${{ matrix.source }}-${{ matrix.device }}-build-cache-${{ github.run_id }}
+
+    - name: 查看磁盘使用情况
+      if: (!cancelled())
+      run: df -hT
+
+    - name: 整理文件
+      id: organize
+      run: |
+        cd $SOURCE_NAME/bin/targets/*/*
+        rm -rf packages
+        rm -rf *.buildinfo
+        rm -rf profiles.json
+        rm -rf *.manifest
+        rm -rf *bl2.bin
+        rm -rf *kernel.bin
+        rm -rf *.sha
+        rm -rf sha256sums
+        echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+
+    - name: 上传固件到Releases
+      uses: softprops/action-gh-release@v3
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ env.release_tag }}-${{env.tag}}-daed-precheck
+        files: ${{ env.FIRMWARE }}/*
+        body: |
+          ====================固件信息=======================
+          分支：${{ env.release_tag }}
+          静态IP：${{ github.event.inputs.OP_IP }}
+          插件：${{ github.event.inputs.CUSTOM_PLUGINS }}
+          定制作者：${{ github.event.inputs.OP_author }}
+          默认密码：root/password
+          Workflow：openwrt-daed-precheck
