@@ -35,6 +35,16 @@ popd
 mv -f qiu-luci-app-daed/daed qiu-luci-app-daed/luci-app-daed package/porxy/
 rm -rf qiu-luci-app-daed
 
+# QiuSimons' current daed package builds the upstream monorepo with
+# `pnpm build --filter daed`, which can leave apps/web/dist empty. dae-wing
+# embeds webrender/web at Go compile time, so force the web app build and fail
+# early with diagnostics if the frontend assets are still missing.
+perl -0777 -i -pe 's#pnpm build --filter daed ; \\\r?\n\s*popd ; \\\r?\n\s*mkdir -p \$\(PKG_BUILD_DIR\)/webrender/web ; \\\r?\n\s*cp -rf \$\(DAED_BUILD_DIR\)/apps/web/dist/\* \$\(PKG_BUILD_DIR\)/webrender/web ;#pnpm --filter ./apps/web build ; \\\n\t\tpopd ; \\\n\t\ttest -s \$(DAED_BUILD_DIR)/apps/web/dist/index.html || { echo "ERROR: daed web assets were not generated"; find \$(DAED_BUILD_DIR)/apps -maxdepth 4 -type f | sort | tail -200; exit 1; } ; \\\n\t\tmkdir -p \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tcp -rf \$(DAED_BUILD_DIR)/apps/web/dist/. \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tfind \$(PKG_BUILD_DIR)/webrender/web -type f -print -quit | grep -q . || { echo "ERROR: dae-wing webrender/web is empty"; exit 1; } ;#s' package/porxy/daed/Makefile
+grep -q 'pnpm --filter ./apps/web build' package/porxy/daed/Makefile || {
+  echo "ERROR: failed to patch daed web build command"
+  exit 1
+}
+
 rm -rf feeds/luci/applications/{luci-app-dockerman,luci-app-samba4,luci-app-aria2,luci-app-diskman}
 rm -rf feeds/packages/net/{samba4,v2ray-geodata,mosdns,sing-box,aria2,ariang,adguardhome}
 
