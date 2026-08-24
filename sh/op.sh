@@ -18,19 +18,22 @@ grep HASH target/linux/generic/kernel-6.12 | awk -F'HASH-' '{print $2}' | awk '{
 git clone -b packages --depth 1 --single-branch https://github.com/shiyu1314/openwrt-feeds package/xd
 git clone -b porxy --depth 1 --single-branch https://github.com/shiyu1314/openwrt-feeds package/porxy
 
-# The smartdns feed can reference a rust-bindgen/host helper that is not present
-# in this source tree. It is only a stale build dependency here, but removing it
-# keeps compile logs clean and avoids confusing warnings.
 [ -f package/xd/smartdns/Makefile ] && sed -i -E \
   -e 's/[[:space:]]*PACKAGE_smartdns-ui:rust-bindgen\/host//g' \
   -e 's/[[:space:]]*rust-bindgen\/host//g' \
   -e 's/[[:space:]]*PACKAGE_smartdns-ui://g' \
   package/xd/smartdns/Makefile
 
-# daed 1.28.x pulls a large pnpm/turbo frontend and has repeatedly failed in
-# GitHub Actions. Install the official OpenWrt 25.12 runfiles at first boot
-# instead of compiling the source packages during firmware build.
+# Use QiuSimons' newer daed/luci-app-daed packages while keeping package names
+# compatible with the existing luci-app-daed selection.
 rm -rf package/porxy/daed package/porxy/luci-app-daed
+rm -rf qiu-luci-app-daed
+git clone --depth=1 -b kix --single-branch --filter=blob:none --sparse https://github.com/QiuSimons/luci-app-daed qiu-luci-app-daed
+pushd qiu-luci-app-daed || exit 1
+git sparse-checkout set daed luci-app-daed
+popd
+mv -f qiu-luci-app-daed/daed qiu-luci-app-daed/luci-app-daed package/porxy/
+rm -rf qiu-luci-app-daed
 
 rm -rf feeds/luci/applications/{luci-app-dockerman,luci-app-samba4,luci-app-aria2,luci-app-diskman}
 rm -rf feeds/packages/net/{samba4,v2ray-geodata,mosdns,sing-box,aria2,ariang,adguardhome}

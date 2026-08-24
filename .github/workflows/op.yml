@@ -19,6 +19,11 @@ on:
         required: false
         default: 'luci-app-zerotier luci-app-socat luci-app-samba4 luci-theme-m3e luci-app-ttyd luci-app-diskman luci-app-daed luci-i18n-daed-zh-cn'
         type: string
+      BUILD_DATE:
+        description: '固件发布日期，留空则使用当天日期'
+        required: false
+        default: '20260824'
+        type: string
 
 permissions:
   contents: write
@@ -81,7 +86,8 @@ jobs:
 
     - name: 设置环境变量
       run: |
-        TAG="$(date +'%Y%m%d')"
+        TAG="${{ github.event.inputs.BUILD_DATE }}"
+        [ -n "$TAG" ] || TAG="$(date +'%Y%m%d')"
         echo "tag=$TAG" >> $GITHUB_ENV
         echo "OP_IP=${{ github.event.inputs.OP_IP }}" >> $GITHUB_ENV
         echo "OP_author=${{ github.event.inputs.OP_author }}" >> $GITHUB_ENV
@@ -169,10 +175,6 @@ jobs:
     - name: 加载自定义配置
       run: |
         [ -e files ] && mv files $SOURCE_NAME/files
-        mkdir -p $SOURCE_NAME/files/usr/share/daed-runfiles
-        wget -qO $SOURCE_NAME/files/usr/share/daed-runfiles/25-luci-app-dead_1.28-aarch64_cortex-a53.run \
-          https://github.com/wkccd/luci-app-daed-runfiles/releases/download/v1.28.0/25-luci-app-dead_1.28-aarch64_cortex-a53.run
-        chmod 0644 $SOURCE_NAME/files/usr/share/daed-runfiles/25-luci-app-dead_1.28-aarch64_cortex-a53.run
         cat <<EOF >>$SOURCE_NAME/.config
         CONFIG_TARGET_mediatek=y
         CONFIG_TARGET_mediatek_filogic=y
@@ -185,11 +187,6 @@ jobs:
         
         IFS=' ' read -r -a plugins <<< "${{ github.event.inputs.CUSTOM_PLUGINS }}"
         for plugin in "${plugins[@]}"; do
-          case "$plugin" in
-            luci-app-daed|luci-i18n-daed-zh-cn)
-              continue
-              ;;
-          esac
           echo "CONFIG_PACKAGE_${plugin}=y" >> $SOURCE_NAME/.config
         done
     
@@ -271,5 +268,4 @@ jobs:
           静态IP：${{ github.event.inputs.OP_IP }}
           插件：${{ github.event.inputs.CUSTOM_PLUGINS }}
           定制作者：${{ github.event.inputs.OP_author }}
-          默认密码：无
-
+          默认密码：root/password
