@@ -312,6 +312,8 @@ jobs:
         run: |
           chmod +x sh/staged-validate-host-tools.sh
           sh/staged-validate-host-tools.sh
+          chmod +x sh/staged-ensure-buildinfo.sh
+          sh/staged-ensure-buildinfo.sh
           cd "$SOURCE_NAME"
           make package/compile -j$(nproc) || yes n | make package/compile -j1 V=s
 
