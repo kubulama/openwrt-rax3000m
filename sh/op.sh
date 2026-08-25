@@ -11,6 +11,20 @@ function git_sparse_clone() {
 
 set -x
 
+apply_patch_once() {
+    patch_file="$1"
+
+    echo "Applying $patch_file ..."
+    if patch -p1 --dry-run --silent < "$patch_file"; then
+        patch -p1 --forward --no-backup-if-mismatch < "$patch_file"
+    elif patch -R -p1 --dry-run --silent < "$patch_file"; then
+        echo "Skipping $patch_file: already applied"
+    else
+        echo "ERROR: Failed to apply $patch_file"
+        return 1
+    fi
+}
+
 # kenrel Vermagic
 sed -ie 's/^\(.\).*vermagic$/\1cp $(TOPDIR)\/.vermagic $(LINUX_DIR)\/.vermagic/' include/kernel-defaults.mk
 grep HASH target/linux/generic/kernel-6.12 | awk -F'HASH-' '{print $2}' | awk '{print $1}' | md5sum | awk '{print $1}' > .vermagic
@@ -68,10 +82,8 @@ sed -i 's/+luci-nginx \\$/+luci-nginx/' feeds/luci/collections/luci-light/Makefi
 pushd feeds/luci || exit 1
 for patch in *.patch; do
     [ -f "$patch" ] || continue
-    
-    echo "Applying $patch ..."
-    patch -p1 --no-backup-if-mismatch < "$patch" || {
-        echo "ERROR: Failed to apply $patch"
+
+    apply_patch_once "$patch" || {
         popd
         exit 1
     }
@@ -131,10 +143,8 @@ for patch in *.patch; do
         echo "Skipping $patch: JCG Q30 PRO profile is managed by sh/op.sh"
         continue
     fi
-    
-    echo "Applying $patch ..."
-    patch -p1 --no-backup-if-mismatch < "$patch" || {
-        echo "ERROR: Failed to apply $patch"
+
+    apply_patch_once "$patch" || {
         exit 1
     }
 done
