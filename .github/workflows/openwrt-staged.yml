@@ -199,6 +199,18 @@ jobs:
       - name: 3.5.compile-daed-only
         run: |
           cd "$SOURCE_NAME"
+          echo "::group::host toolchain validation"
+          if [ ! -x staging_dir/host/bin/libdeflate-gzip ]; then
+            echo "Missing staging_dir/host/bin/libdeflate-gzip; rebuilding OpenWrt host tools"
+            make tools/install -j$(nproc) || yes n | make tools/install -j1 V=s
+          fi
+          if ! find staging_dir/toolchain-* -path '*/bin/aarch64-openwrt-linux-musl-gcc' -type f -executable -print -quit | grep -q .; then
+            echo "Missing aarch64-openwrt-linux-musl-gcc; rebuilding OpenWrt toolchain"
+            make toolchain/install -j$(nproc) || yes n | make toolchain/install -j1 V=s
+          fi
+          ls -l staging_dir/host/bin/libdeflate-gzip || true
+          find staging_dir/toolchain-* -path '*/bin/aarch64-openwrt-linux-musl-gcc' -type f -executable -print -quit || true
+          echo "::endgroup::"
           echo "::group::daed package diagnostics"
           grep -E 'CONFIG_PACKAGE_(daed|luci-app-daed|luci-i18n-daed)|CONFIG_DAE|CONFIG_DAED|CONFIG_KERNEL_DEBUG_INFO_BTF' .config || true
           grep -nE 'corepack|pnpm|apps/web|webrender|dist/index.html' package/porxy/daed/Makefile || true
