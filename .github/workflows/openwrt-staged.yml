@@ -221,6 +221,21 @@ jobs:
           ls -l staging_dir/host/bin/libdeflate-gzip || true
           find staging_dir/toolchain-* -path '*/bin/aarch64-openwrt-linux-musl-gcc' -type f -executable -print -quit || true
           echo "::endgroup::"
+          echo "::group::kernel bpf validation"
+          kernel_config="$(find build_dir/target-* -path '*/linux-mediatek_filogic/linux-*/.config' -type f -print -quit || true)"
+          if [ -z "$kernel_config" ]; then
+            echo "Missing mediatek kernel .config; rebuilding target before bpf-headers"
+            make target/compile -j$(nproc) || yes n | make target/compile -j1 V=s
+            kernel_config="$(find build_dir/target-* -path '*/linux-mediatek_filogic/linux-*/.config' -type f -print -quit || true)"
+          fi
+          if [ -z "$kernel_config" ]; then
+            echo "ERROR: mediatek kernel .config is still missing after target/compile"
+            find build_dir/target-* -maxdepth 4 -type d -name 'linux-*' -print || true
+            exit 1
+          fi
+          echo "kernel_config=$kernel_config"
+          make package/kernel/bpf-headers/compile V=s || yes n | make package/kernel/bpf-headers/compile V=s
+          echo "::endgroup::"
           echo "::group::daed package diagnostics"
           grep -E 'CONFIG_PACKAGE_(daed|luci-app-daed|luci-i18n-daed)|CONFIG_DAE|CONFIG_DAED|CONFIG_KERNEL_DEBUG_INFO_BTF' .config || true
           grep -nE 'corepack|pnpm|apps/web|webrender|dist/index.html' package/porxy/daed/Makefile || true
