@@ -14,7 +14,7 @@ fi
 
 missing=0
 for pkg in base-files libc libstdcpp6 mtd ntfs3-mount ubi-utils uboot-envtools; do
-  if ! find bin/packages bin/targets/mediatek/filogic/packages -type f -name "$pkg-*.apk" -print -quit 2>/dev/null | grep -q .; then
+  if ! find bin/packages bin/targets/mediatek/filogic/packages -type f \( -name "$pkg-*.apk" -o -name "$pkg"_*.apk \) -print -quit 2>/dev/null | grep -q .; then
     echo "Missing required APK in packages cache: $pkg"
     missing=1
   fi
