@@ -88,6 +88,7 @@ jobs:
             /workdir/openwrt/build_dir/toolchain-*
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
+            /workdir/openwrt/bin/targets
           key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-daed-${{ github.run_id }}
           restore-keys: |
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-daed-
@@ -124,6 +125,7 @@ jobs:
             /workdir/openwrt/build_dir/toolchain-*
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
+            /workdir/openwrt/bin/targets
           key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-packages-${{ github.run_id }}
 
   images:
@@ -164,6 +166,7 @@ jobs:
             /workdir/openwrt/build_dir/toolchain-*
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
+            /workdir/openwrt/bin/targets
           key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.packages.outputs.release_tag }}-packages-${{ github.run_id }}
           restore-keys: |
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.packages.outputs.release_tag }}-packages-
