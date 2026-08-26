@@ -111,6 +111,8 @@ jobs:
           sh/staged-validate-host-tools.sh
           chmod +x sh/staged-ensure-buildinfo.sh
           sh/staged-ensure-buildinfo.sh
+          chmod +x sh/staged-ensure-kernel-config.sh
+          sh/staged-ensure-kernel-config.sh
           cd "$SOURCE_NAME"
           make package/compile -j$(nproc) || yes n | make package/compile -j1 V=s
 
