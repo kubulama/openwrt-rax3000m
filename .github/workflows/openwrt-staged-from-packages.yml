@@ -1,0 +1,157 @@
+name: openwrt-staged-from-packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      OP_IP:
+        description: '静态IP地址'
+        required: false
+        default: '192.168.2.1'
+        type: string
+      OP_author:
+        description: '定制作者'
+        required: false
+        default: 'kubulama'
+        type: string
+      CUSTOM_PLUGINS:
+        description: '自定义插件名称，用空格分隔'
+        required: false
+        default: 'luci-app-zerotier luci-app-socat luci-app-samba4 luci-theme-m3e luci-app-ttyd luci-app-diskman luci-app-daed luci-i18n-daed-zh-cn'
+        type: string
+      BUILD_DATE:
+        description: '固件发布日期，留空则使用当天日期'
+        required: false
+        default: '20260824'
+        type: string
+      OPENWRT_RELEASE_TAG:
+        description: 'OpenWrt源码标签，留空则使用最新v25.*标签'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  DIY_P1_SH: sh/op.sh
+  SOURCE_NAME: openwrt
+  REPO_URL: https://github.com/shiyu1314/openwrt-source
+  REPO_BRANCH: openwrt-25.12
+  DEVICE_NAME: mt7981-multi
+
+jobs:
+  images:
+    name: 5.images-from-packages
+    runs-on: ubuntu-22.04
+    outputs:
+      release_tag: ${{ steps.prepare.outputs.release_tag }}
+      build_date: ${{ steps.vars.outputs.build_date }}
+    steps:
+      - name: 5.1.checkout-control-repo
+        uses: actions/checkout@v6
+
+      - name: 5.2.install-build-env
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo rm -rf /etc/apt/sources.list.d
+          sudo apt-get update
+          sudo apt-get install -y tar build-essential flex bison cmake g++ gawk gcc-multilib g++-multilib gettext git libfuse-dev libncurses5-dev libssl-dev python3 python3-pip python3-ply python3-distutils python3-pyelftools rsync unzip zlib1g-dev file wget subversion patch upx-ucl autoconf automake curl asciidoc binutils bzip2 lib32gcc-s1 libc6-dev-i386 uglifyjs msmtp texinfo libreadline-dev libglib2.0-dev xmlto libelf-dev libtool autopoint antlr3 gperf ccache swig coreutils haveged scons libpython3-dev rename qemu-utils clang llvm
+          sudo apt-get clean
+
+      - name: 5.3.set-build-date
+        id: vars
+        run: |
+          TAG="${{ github.event.inputs.BUILD_DATE }}"
+          [ -n "$TAG" ] || TAG="$(date +'%Y%m%d')"
+          echo "build_date=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: 5.4.prepare-source-for-release-tag
+        id: prepare
+        env:
+          STAGED_RELEASE_TAG: ${{ github.event.inputs.OPENWRT_RELEASE_TAG }}
+          OP_IP: ${{ github.event.inputs.OP_IP }}
+          OP_author: ${{ github.event.inputs.OP_author }}
+          CUSTOM_PLUGINS: ${{ github.event.inputs.CUSTOM_PLUGINS }}
+        run: |
+          chmod +x sh/staged-prepare.sh
+          sh/staged-prepare.sh
+
+      - name: 5.5.restore-packages-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            /workdir/openwrt/dl
+            /workdir/openwrt/staging_dir
+            /workdir/openwrt/build_dir/host
+            /workdir/openwrt/build_dir/hostpkg
+            /workdir/openwrt/build_dir/toolchain-*
+            /workdir/openwrt/build_dir/target-*
+            /workdir/openwrt/bin/packages
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-packages-${{ github.run_id }}
+          restore-keys: |
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-packages-
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-daed-
+            openwrt-staged-${{ env.DEVICE_NAME }}-packages-
+
+      - name: 5.6.prepare-source
+        env:
+          STAGED_RELEASE_TAG: ${{ steps.prepare.outputs.release_tag }}
+          OP_IP: ${{ github.event.inputs.OP_IP }}
+          OP_author: ${{ github.event.inputs.OP_author }}
+          CUSTOM_PLUGINS: ${{ github.event.inputs.CUSTOM_PLUGINS }}
+        run: |
+          chmod +x sh/staged-prepare.sh
+          sh/staged-prepare.sh
+
+      - name: 5.7.package-and-build-images
+        run: |
+          chmod +x sh/staged-validate-host-tools.sh
+          sh/staged-validate-host-tools.sh
+          chmod +x sh/staged-ensure-apk-signing-key.sh
+          sh/staged-ensure-apk-signing-key.sh
+          cd "$SOURCE_NAME"
+          make package/install -j$(nproc) || yes n | make package/install -j1 V=s
+          make target/install -j$(nproc) || yes n | make target/install -j1 V=s
+          make package/index
+
+      - name: 5.8.organize-firmware
+        run: |
+          cd "$SOURCE_NAME/bin/targets"/*/*
+          rm -rf packages *.buildinfo profiles.json *.manifest *bl2.bin *kernel.bin *.sha sha256sums
+          mkdir -p "$GITHUB_WORKSPACE/firmware"
+          cp -fpR ./* "$GITHUB_WORKSPACE/firmware/"
+
+      - name: 5.9.upload-firmware-artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: openwrt-staged-from-packages-firmware
+          path: firmware/*
+          retention-days: 7
+
+  release:
+    name: 6.release
+    runs-on: ubuntu-22.04
+    needs: images
+    steps:
+      - name: 6.1.download-firmware-artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: openwrt-staged-from-packages-firmware
+          path: firmware
+
+      - name: 6.2.upload-release
+        uses: softprops/action-gh-release@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.images.outputs.release_tag }}-${{ needs.images.outputs.build_date }}-staged
+          files: firmware/*
+          body: |
+            ====================固件信息=======================
+            分支：${{ needs.images.outputs.release_tag }}
+            静态IP：${{ github.event.inputs.OP_IP }}
+            插件：${{ github.event.inputs.CUSTOM_PLUGINS }}
+            定制作者：${{ github.event.inputs.OP_author }}
+            默认密码：root/password
+            Workflow：openwrt-staged-from-packages
