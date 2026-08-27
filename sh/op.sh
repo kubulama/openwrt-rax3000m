@@ -60,6 +60,17 @@ grep -Fq 'pnpm -C $(DAED_BUILD_DIR)/apps/web build' package/porxy/daed/Makefile 
   exit 1
 }
 
+# Keep the original daed dashboard assets embedded in dae-wing. QiuSimons'
+# Makefile gzips larger JS/CSS assets and may remove the original files; on
+# some builds the embedded dashboard then opens as a blank white page because
+# the internal HTTP server/browser path does not serve those compressed assets
+# correctly.
+perl -0777 -i -pe 's#\n\t\tfind \$\(PKG_BUILD_DIR\)/webrender/web -type f -size \+4k ! -name "\*\.gz" ! -name "\*\.woff"  ! -name "\*\.woff2" -exec sh -c '\''\\\r?\n\t\t\tgzip -9 -k "\{\}"; \\\r?\n\t\t\tif \[ "\$\$\$\$\(stat -c %s \{\}\)" -lt "\$\$\$\$\(stat -c %s \{\}\.gz\)" \]; then \\\r?\n\t\t\t\trm \{\}\.gz;\\\r?\n\t\t\telse \\\r?\n\t\t\t\trm \{\};\\\r?\n\t\t\tfi'\'' \\\r?\n\t\t";" ; \\\r?#\n\t\techo "Keeping uncompressed daed dashboard assets for embedded web UI" ; \\#s' package/porxy/daed/Makefile
+if grep -Fq 'webrender/web -type f -size +4k' package/porxy/daed/Makefile; then
+  echo "ERROR: failed to remove daed dashboard asset gzip/delete rule"
+  exit 1
+fi
+
 rm -rf feeds/luci/applications/{luci-app-dockerman,luci-app-samba4,luci-app-aria2,luci-app-diskman}
 rm -rf feeds/packages/net/{samba4,v2ray-geodata,mosdns,sing-box,aria2,ariang,adguardhome}
 
