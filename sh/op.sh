@@ -63,8 +63,59 @@ grep -Fq 'npm install -g pnpm@10.24.0' package/porxy/daed/Makefile || {
 # webrender/web at Go compile time, so install the pnpm workspace deps, build
 # the shared web packages first, build apps/web explicitly, and fail early with
 # diagnostics if assets are still missing or cannot run standalone in a browser.
-perl -0777 -i -pe 's#pnpm build --filter daed ; \\\r?\n\s*popd ; \\\r?\n\s*mkdir -p \$\(PKG_BUILD_DIR\)/webrender/web ; \\\r?\n\s*cp -rf \$\(DAED_BUILD_DIR\)/apps/web/dist/\* \$\(PKG_BUILD_DIR\)/webrender/web ;#node -v ; \\\n\t\tcorepack enable || true ; \\\n\t\tpnpm -v ; \\\n\t\tpnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile ; \\\n\t\tsed -i "/@daeuniverse\\\\/dae-editor/a\\\\        '"'"'@daeuniverse/dae-lang-core'"'"': path.resolve(__dirname, '"'"'../../packages/dae-lang-core/src/index.ts'"'"'),\\\\n        '"'"'@daeuniverse/dae-lsp/server/browser'"'"': path.resolve(__dirname, '"'"'../../packages/dae-lsp/src/browser-server.ts'"'"')," \$(DAED_BUILD_DIR)/apps/web/vite.config.ts ; \\\n\t\tpnpm --filter @daeuniverse/dae-lang-core build ; \\\n\t\tpnpm --filter @daeuniverse/dae-node-parser build ; \\\n\t\tpnpm --filter @daeuniverse/dae-lsp build ; \\\n\t\tpnpm --filter @daeuniverse/dae-editor build ; \\\n\t\tpnpm -C \$(DAED_BUILD_DIR)/apps/web build ; \\\n\t\tpopd ; \\\n\t\ttest -s \$(DAED_BUILD_DIR)/apps/web/dist/index.html || { echo "ERROR: daed web assets were not generated"; find \$(DAED_BUILD_DIR)/apps -maxdepth 4 -type f | sort | tail -200; exit 1; } ; \\\n\t\tmkdir -p \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tcp -rf \$(DAED_BUILD_DIR)/apps/web/dist/. \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tfind \$(PKG_BUILD_DIR)/webrender/web -type f -print -quit | grep -q . || { echo "ERROR: dae-wing webrender/web is empty"; exit 1; } ; \\\n\t\tif grep -RInE "^[[:space:]]*import[[:space:]]+(.*from[[:space:]]+)?[\"'"'"'\'"'"''"'"'][^./][^\"'"'"'\'"'"''"'"']*[\"'"'"'\'"'"''"'"']" \$(PKG_BUILD_DIR)/webrender/web/assets/*.js 2>/dev/null ; then echo "ERROR: daed web assets contain browser-side bare module imports"; exit 1; fi ;#s' package/porxy/daed/Makefile
-grep -Fq 'pnpm -C $(DAED_BUILD_DIR)/apps/web build' package/porxy/daed/Makefile || {
+python3 - <<'PY'
+from pathlib import Path
+
+path = Path("package/porxy/daed/Makefile")
+lines = path.read_text().splitlines(keepends=True)
+out = []
+patched_install = False
+patched_build = False
+patched_copy = False
+
+for line in lines:
+    stripped = line.strip()
+    if stripped == "pnpm install ; \\":
+        out.extend([
+            "\t\t\tpnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile ; \\\n",
+            "\t\t\tsed -i \"/@daeuniverse\\\\/dae-editor/a\\\\        '@daeuniverse/dae-lang-core': path.resolve(__dirname, '../../packages/dae-lang-core/src/index.ts'),\\\\n        '@daeuniverse/dae-lsp/server/browser': path.resolve(__dirname, '../../packages/dae-lsp/src/browser-server.ts'),\" apps/web/vite.config.ts ; \\\n",
+        ])
+        patched_install = True
+        continue
+    if stripped == "pnpm build --filter daed ; \\":
+        out.extend([
+            "\t\t\tpnpm --filter @daeuniverse/dae-lang-core build ; \\\n",
+            "\t\t\tpnpm --filter @daeuniverse/dae-node-parser build ; \\\n",
+            "\t\t\tpnpm --filter @daeuniverse/dae-lsp build ; \\\n",
+            "\t\t\tpnpm --filter @daeuniverse/dae-editor build ; \\\n",
+            "\t\t\tpnpm -C apps/web build ; \\\n",
+        ])
+        patched_build = True
+        continue
+    if "cp -rf $(DAED_BUILD_DIR)/apps/web/dist/* $(PKG_BUILD_DIR)/webrender/web" in line:
+        out.extend([
+            "\t\tcp -rf $(DAED_BUILD_DIR)/apps/web/dist/. $(PKG_BUILD_DIR)/webrender/web ; \\\n",
+            "\t\ttest -s $(PKG_BUILD_DIR)/webrender/web/index.html || { echo \"ERROR: daed web assets were not generated\"; find $(DAED_BUILD_DIR)/apps -maxdepth 4 -type f | sort | tail -200; exit 1; } ; \\\n",
+            "\t\tfind $(PKG_BUILD_DIR)/webrender/web -type f -print -quit | grep -q . || { echo \"ERROR: dae-wing webrender/web is empty\"; exit 1; } ; \\\n",
+            "\t\tif grep -RInE \"^[[:space:]]*import[[:space:]]+(.*from[[:space:]]+)?[\\\"'][^./][^\\\"']*[\\\"']\" $(PKG_BUILD_DIR)/webrender/web/assets/*.js 2>/dev/null ; then echo \"ERROR: daed web assets contain browser-side bare module imports\"; exit 1; fi ; \\\n",
+        ])
+        patched_copy = True
+        continue
+    out.append(line)
+
+missing = []
+if not patched_install:
+    missing.append("pnpm install")
+if not patched_build:
+    missing.append("pnpm build --filter daed")
+if not patched_copy:
+    missing.append("daed web asset copy")
+if missing:
+    raise SystemExit("ERROR: failed to patch daed Makefile sections: " + ", ".join(missing))
+
+path.write_text("".join(out))
+PY
+grep -Fq 'pnpm -C apps/web build' package/porxy/daed/Makefile || {
   echo "ERROR: failed to patch daed web build command"
   exit 1
 }
