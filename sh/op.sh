@@ -49,16 +49,45 @@ popd
 mv -f qiu-luci-app-daed/daed qiu-luci-app-daed/luci-app-daed package/porxy/
 rm -rf qiu-luci-app-daed
 
+# Match daeuniverse/daed's declared package manager. Floating to latest pnpm
+# can change lifecycle-script handling and make the frontend build flaky.
+sed -i 's/npm install -g pnpm/npm install -g pnpm@10.24.0/' package/porxy/daed/Makefile
+grep -Fq 'npm install -g pnpm@10.24.0' package/porxy/daed/Makefile || {
+  echo "ERROR: failed to pin daed pnpm version"
+  exit 1
+}
+
 # QiuSimons' current daed package builds the upstream monorepo with
-# `pnpm build --filter daed`, which can leave apps/web/dist empty. dae-wing
-# embeds webrender/web at Go compile time, so install the pnpm workspace deps,
-# build apps/web explicitly, and fail early with diagnostics if assets are
-# still missing.
-perl -0777 -i -pe 's#pnpm build --filter daed ; \\\r?\n\s*popd ; \\\r?\n\s*mkdir -p \$\(PKG_BUILD_DIR\)/webrender/web ; \\\r?\n\s*cp -rf \$\(DAED_BUILD_DIR\)/apps/web/dist/\* \$\(PKG_BUILD_DIR\)/webrender/web ;#node -v ; \\\n\t\tcorepack enable || true ; \\\n\t\tpnpm -v ; \\\n\t\tpnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile ; \\\n\t\tpnpm -C \$(DAED_BUILD_DIR)/apps/web build ; \\\n\t\tpopd ; \\\n\t\ttest -s \$(DAED_BUILD_DIR)/apps/web/dist/index.html || { echo "ERROR: daed web assets were not generated"; find \$(DAED_BUILD_DIR)/apps -maxdepth 4 -type f | sort | tail -200; exit 1; } ; \\\n\t\tmkdir -p \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tcp -rf \$(DAED_BUILD_DIR)/apps/web/dist/. \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tfind \$(PKG_BUILD_DIR)/webrender/web -type f -print -quit | grep -q . || { echo "ERROR: dae-wing webrender/web is empty"; exit 1; } ;#s' package/porxy/daed/Makefile
+# `pnpm build --filter daed`, which can leave apps/web/dist empty or leave
+# workspace packages as browser-side bare imports. dae-wing embeds
+# webrender/web at Go compile time, so install the pnpm workspace deps, build
+# the shared web packages first, build apps/web explicitly, and fail early with
+# diagnostics if assets are still missing or cannot run standalone in a browser.
+perl -0777 -i -pe 's#pnpm build --filter daed ; \\\r?\n\s*popd ; \\\r?\n\s*mkdir -p \$\(PKG_BUILD_DIR\)/webrender/web ; \\\r?\n\s*cp -rf \$\(DAED_BUILD_DIR\)/apps/web/dist/\* \$\(PKG_BUILD_DIR\)/webrender/web ;#node -v ; \\\n\t\tcorepack enable || true ; \\\n\t\tpnpm -v ; \\\n\t\tpnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile ; \\\n\t\tsed -i "/@daeuniverse\\\\/dae-editor/a\\\\        '"'"'@daeuniverse/dae-lang-core'"'"': path.resolve(__dirname, '"'"'../../packages/dae-lang-core/src/index.ts'"'"'),\\\\n        '"'"'@daeuniverse/dae-lsp/server/browser'"'"': path.resolve(__dirname, '"'"'../../packages/dae-lsp/src/browser-server.ts'"'"')," \$(DAED_BUILD_DIR)/apps/web/vite.config.ts ; \\\n\t\tpnpm --filter @daeuniverse/dae-lang-core build ; \\\n\t\tpnpm --filter @daeuniverse/dae-node-parser build ; \\\n\t\tpnpm --filter @daeuniverse/dae-lsp build ; \\\n\t\tpnpm --filter @daeuniverse/dae-editor build ; \\\n\t\tpnpm -C \$(DAED_BUILD_DIR)/apps/web build ; \\\n\t\tpopd ; \\\n\t\ttest -s \$(DAED_BUILD_DIR)/apps/web/dist/index.html || { echo "ERROR: daed web assets were not generated"; find \$(DAED_BUILD_DIR)/apps -maxdepth 4 -type f | sort | tail -200; exit 1; } ; \\\n\t\tmkdir -p \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tcp -rf \$(DAED_BUILD_DIR)/apps/web/dist/. \$(PKG_BUILD_DIR)/webrender/web ; \\\n\t\tfind \$(PKG_BUILD_DIR)/webrender/web -type f -print -quit | grep -q . || { echo "ERROR: dae-wing webrender/web is empty"; exit 1; } ; \\\n\t\tif grep -RInE "^[[:space:]]*import[[:space:]]+(.*from[[:space:]]+)?[\"'"'"'\'"'"''"'"'][^./][^\"'"'"'\'"'"''"'"']*[\"'"'"'\'"'"''"'"']" \$(PKG_BUILD_DIR)/webrender/web/assets/*.js 2>/dev/null ; then echo "ERROR: daed web assets contain browser-side bare module imports"; exit 1; fi ;#s' package/porxy/daed/Makefile
 grep -Fq 'pnpm -C $(DAED_BUILD_DIR)/apps/web build' package/porxy/daed/Makefile || {
   echo "ERROR: failed to patch daed web build command"
   exit 1
 }
+grep -Fq 'pnpm --filter @daeuniverse/dae-lsp build' package/porxy/daed/Makefile || {
+  echo "ERROR: failed to patch daed workspace package build command"
+  exit 1
+}
+grep -Fq '@daeuniverse/dae-lsp/server/browser' package/porxy/daed/Makefile || {
+  echo "ERROR: failed to patch daed vite aliases"
+  exit 1
+}
+grep -Fq 'browser-side bare module imports' package/porxy/daed/Makefile || {
+  echo "ERROR: failed to patch daed browser asset validation"
+  exit 1
+}
+
+# daed listens on plain HTTP by default. If LuCI is opened over HTTPS, the
+# upstream iframe helper inherits the HTTPS scheme and points the browser at
+# https://router:2023, which fails because daed is not serving TLS.
+if [ -f package/porxy/luci-app-daed/luasrc/view/daed/daed.htm ]; then
+  sed -i "s/var protocol = window.location.protocol;/var protocol = 'http:';/" \
+    package/porxy/luci-app-daed/luasrc/view/daed/daed.htm
+fi
 
 # Keep the original daed dashboard assets embedded in dae-wing. QiuSimons'
 # Makefile gzips larger JS/CSS assets and may remove the original files; on
