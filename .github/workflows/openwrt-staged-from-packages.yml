@@ -89,8 +89,9 @@ jobs:
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
             /workdir/openwrt/bin/targets
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-packages-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-packages-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-packages-${{ github.run_id }}-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ steps.prepare.outputs.release_tag }}-packages-
             openwrt-staged-${{ env.DEVICE_NAME }}-packages-
 

@@ -72,8 +72,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /workdir/openwrt/dl
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ env.REPO_BRANCH }}-downloads-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ env.REPO_BRANCH }}-downloads-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ env.REPO_BRANCH }}-downloads-${{ github.run_id }}-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ env.REPO_BRANCH }}-downloads-
             openwrt-staged-${{ env.DEVICE_NAME }}-downloads-
 
@@ -95,7 +96,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: /workdir/openwrt/dl
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ env.REPO_BRANCH }}-downloads-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ env.REPO_BRANCH }}-downloads-${{ github.run_id }}-${{ github.run_attempt }}
 
   toolchain-kernel:
     name: 2.toolchain-kernel
@@ -118,8 +119,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: /workdir/openwrt/dl
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-downloads-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-downloads-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-downloads-${{ github.run_id }}-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-downloads-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ env.REPO_BRANCH }}-downloads-
             openwrt-staged-${{ env.DEVICE_NAME }}-downloads-
@@ -152,7 +154,7 @@ jobs:
             /workdir/openwrt/build_dir/hostpkg
             /workdir/openwrt/build_dir/toolchain-*
             /workdir/openwrt/build_dir/target-*
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-toolchain-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-toolchain-${{ github.run_id }}-${{ github.run_attempt }}
 
   daed-precheck:
     name: 3.daed-precheck
@@ -181,8 +183,9 @@ jobs:
             /workdir/openwrt/build_dir/hostpkg
             /workdir/openwrt/build_dir/toolchain-*
             /workdir/openwrt/build_dir/target-*
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-toolchain-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-toolchain-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-toolchain-${{ github.run_id }}-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-toolchain-
             openwrt-staged-${{ env.DEVICE_NAME }}-toolchain-
 
@@ -213,7 +216,7 @@ jobs:
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
             /workdir/openwrt/bin/targets
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-daed-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-daed-${{ github.run_id }}-${{ github.run_attempt }}
 
   packages:
     name: 4.packages
@@ -244,8 +247,9 @@ jobs:
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
             /workdir/openwrt/bin/targets
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-daed-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-daed-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-daed-${{ github.run_id }}-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-daed-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-toolchain-
             openwrt-staged-${{ env.DEVICE_NAME }}-daed-
@@ -270,6 +274,9 @@ jobs:
           sh/staged-ensure-kernel-config.sh
           cd "$SOURCE_NAME"
           make package/compile -j$(nproc) || yes n | make package/compile -j1 V=s
+          cd "$GITHUB_WORKSPACE"
+          chmod +x sh/staged-validate-packages-cache.sh
+          sh/staged-validate-packages-cache.sh
 
       - name: 4.6.save-packages-cache
         uses: actions/cache/save@v5
@@ -283,7 +290,7 @@ jobs:
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
             /workdir/openwrt/bin/targets
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-packages-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-packages-${{ github.run_id }}-${{ github.run_attempt }}
 
   images:
     name: 5.images
@@ -314,10 +321,10 @@ jobs:
             /workdir/openwrt/build_dir/target-*
             /workdir/openwrt/bin/packages
             /workdir/openwrt/bin/targets
-          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-packages-${{ github.run_id }}
+          key: openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-packages-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-packages-${{ github.run_id }}-
             openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-packages-
-            openwrt-staged-${{ env.DEVICE_NAME }}-${{ needs.prepare-source.outputs.release_tag }}-daed-
             openwrt-staged-${{ env.DEVICE_NAME }}-packages-
 
       - name: 5.4.prepare-source
@@ -332,6 +339,8 @@ jobs:
 
       - name: 5.5.package-and-build-images
         run: |
+          chmod +x sh/staged-validate-packages-cache.sh
+          sh/staged-validate-packages-cache.sh
           chmod +x sh/staged-validate-host-tools.sh
           sh/staged-validate-host-tools.sh
           chmod +x sh/staged-ensure-apk-signing-key.sh
